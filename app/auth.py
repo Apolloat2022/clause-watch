@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -75,21 +76,32 @@ class JwksCache:
         ttl: float = 3600.0,
         min_refetch_interval: float = 300.0,
         client: httpx.AsyncClient | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self._uri = uri
         self._ttl = ttl
         self._min_refetch_interval = min_refetch_interval
         self._client = client
+        self._clock = clock
         self._keys: dict[str, Any] = {}
-        self._last_success = 0.0
-        self._last_attempt = 0.0
+        # None, not 0.0. time.monotonic() counts from an arbitrary origin — on
+        # Linux, system boot — so on a freshly started host `now - 0.0` is a
+        # handful of seconds and every interval below reads as "not yet due".
+        # A container scheduled onto a newly booted node would then never make
+        # its first fetch and would reject every token presented to it.
+        self._last_success: float | None = None
+        self._last_attempt: float | None = None
         self._lock = asyncio.Lock()
 
     def _expired(self) -> bool:
-        return (time.monotonic() - self._last_success) > self._ttl
+        if self._last_success is None:
+            return True
+        return (self._clock() - self._last_success) > self._ttl
 
     def _refetch_allowed(self) -> bool:
-        return (time.monotonic() - self._last_attempt) > self._min_refetch_interval
+        if self._last_attempt is None:
+            return True
+        return (self._clock() - self._last_attempt) > self._min_refetch_interval
 
     async def get(self, kid: str) -> Any | None:
         hit = self._keys.get(kid)
@@ -109,7 +121,7 @@ class JwksCache:
     async def _refresh(self) -> None:
         # Stamped before the request, not after: a failing endpoint must still
         # advance the rate limit, or every request retries it.
-        self._last_attempt = time.monotonic()
+        self._last_attempt = self._clock()
 
         client = self._client or httpx.AsyncClient(timeout=5.0)
         try:
@@ -125,7 +137,7 @@ class JwksCache:
             for key in document.get("keys", [])
             if key.get("kty") == "RSA" and "kid" in key
         }
-        self._last_success = time.monotonic()
+        self._last_success = self._clock()
 
 
 class EntraIdAuthMiddleware:

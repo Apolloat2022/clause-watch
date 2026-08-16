@@ -297,6 +297,30 @@ async def test_jwks_is_fetched_once_and_cached(jwk):
     assert len(calls) == 1
 
 
+async def test_first_fetch_happens_on_a_freshly_booted_host(jwk):
+    """The interval checks must not assume the clock started long ago.
+
+    time.monotonic() counts from an arbitrary origin — system boot on Linux — so
+    a container scheduled onto a new node sees a clock reading a few seconds.
+    With 0.0 as the "never fetched" sentinel, every interval then reads as "not
+    due yet" and the cache never fetches at all, rejecting every token. Pinned
+    with a clock at zero, which is the worst case.
+    """
+    calls = []
+
+    async def handler(request):
+        calls.append(request.url)
+        return httpx.Response(200, json={"keys": [jwk]})
+
+    cache = JwksCache(
+        "https://example.test/keys",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        clock=lambda: 0.0,
+    )
+    assert await cache.get(KID) is not None
+    assert len(calls) == 1
+
+
 async def test_unknown_kid_refetch_is_rate_limited(jwk):
     """An unknown kid must be able to pull rotated keys, but not on every request.
 

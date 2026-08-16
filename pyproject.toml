@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "clausewatch"
+version = "0.1.0"
+description = "Contract obligation extraction and monitoring, built natively on Azure"
+requires-python = ">=3.11,<3.13"
+readme = "README.md"
+
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    # Required for multipart file upload; FastAPI does not pull it in, and its
+    # absence only surfaces at request time, not at import.
+    "python-multipart>=0.0.9",
+    # Entra ID JWT validation (signature + claims against the tenant JWKS).
+    "pyjwt[crypto]>=2.8",
+]
+azure = [
+    # One credential type for every service below — Managed Identity in
+    # Container Apps, developer credentials locally, no code change between.
+    "azure-identity>=1.17",
+    "azure-cosmos>=4.7",
+    "azure-storage-blob>=12.20",
+    "azure-servicebus>=7.12",
+    "azure-ai-documentintelligence>=1.0",
+    # Required by azure-identity's *async* credentials, which none of the
+    # packages above declare. Without it DefaultAzureCredential raises
+    # ImportError the first time it builds a pipeline — at request time in a
+    # deployed container, not at import.
+    "aiohttp>=3.9",
+]
+llm = [
+    # Claude via Foundry for extraction; the openai client is for the
+    # embedding deployment only (Anthropic has no embedding model).
+    "anthropic>=0.40",
+    "openai>=1.40",
+]
+local = [
+    # Text-only PDF extraction so the ingest path runs end to end without
+    # Azure. Not a Document Intelligence substitute — see
+    # app/ingest/local_analyzer.py for what it loses.
+    "pypdf>=4.2",
+]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+# FastAPI's dependency injection *requires* calls in argument defaults
+# (File(...), Form(...), Depends(...)). B008 is a true positive for ordinary
+# Python and a false one for every FastAPI route, so it is scoped off here
+# rather than silenced with per-line noqa on each handler.
+"app/api/*.py" = ["B008"]

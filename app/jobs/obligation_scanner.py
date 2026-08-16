@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 
 from app.config import settings
-from app.data.ports import Notifier, ObligationRepository
+from app.data.ports import AuditLog, Notifier, ObligationRepository
 from app.deps import Dependencies, build_dependencies
 from app.domain.models import Obligation, ObligationState
 from app.domain.recurrence import next_occurrence, parse_recurrence
@@ -98,6 +98,7 @@ async def scan(
     *,
     contracts_repo,
     notifier: Notifier | None = None,
+    audit: AuditLog | None = None,
     today: date | None = None,
     due_soon_days: int = 30,
 ) -> ScanResult:
@@ -105,6 +106,10 @@ async def scan(
 
     `today` is injectable so the state machine can be tested at a fixed date
     rather than against whatever day the suite happens to run on.
+
+    `audit` is optional for the same reason `notifier` is — the state-machine
+    tests are about the state machine — but `main()` always supplies it, so
+    every transition made by the deployed job is recorded.
     """
     today = today or datetime.now(UTC).date()
     result = ScanResult()
@@ -152,6 +157,23 @@ async def scan(
         await obligations_repo.upsert(updated)
         if target is not obligation.state:
             result.transitions.append((updated, target))
+            if audit is not None:
+                # After the upsert, matching app/ingest/pipeline.py. There is no
+                # transaction spanning the two containers either way, so the
+                # choice is which direction to be wrong in: this one can miss a
+                # row for a change that happened, the other would record a row
+                # for a change that did not. A trail that overstates is the
+                # worse failure — it is the one nobody thinks to check.
+                await audit.record(
+                    contract_id=obligation.contract_id,
+                    action=target.value,
+                    actor="obligation-scanner",
+                    detail={
+                        "obligation_id": obligation.id,
+                        "from_state": obligation.state.value,
+                        "due_date": due.isoformat() if due is not None else None,
+                    },
+                )
 
     if result.unscheduled:
         logger.warning(
@@ -183,6 +205,7 @@ async def main() -> None:
             deps.obligations,
             contracts_repo=deps.contracts,
             notifier=deps.notifier,
+            audit=deps.audit,
             due_soon_days=settings.due_soon_days,
         )
     finally:

@@ -288,6 +288,79 @@ async def test_scanner_notifies_only_when_something_changed(deps):
     assert len(notifier.results[0].newly_overdue) == 1
 
 
+async def test_scanner_audits_every_transition_it_makes(deps):
+    # The scanner is the only actor that changes an obligation's state without a
+    # person involved. Without a row here, a DUE_SOON that appeared overnight has
+    # no explanation and no timestamp beyond the obligation's own updated_at.
+    await deps.obligations.upsert(obligation(due_date=date(2026, 5, 1)))
+
+    await scan(
+        deps.obligations,
+        contracts_repo=FakeContracts(),
+        audit=deps.audit,
+        today=TODAY,
+        due_soon_days=30,
+    )
+
+    assert len(deps.audit.entries) == 1
+    entry = deps.audit.entries[0]
+    assert entry["action"] == "OVERDUE"
+    assert entry["actor"] == "obligation-scanner"
+    assert entry["contract_id"] == "c"
+    # The previous state is the part that makes the row worth keeping: OVERDUE
+    # reached from OPEN and from DUE_SOON are different stories.
+    assert entry["detail"] == {
+        "obligation_id": "c:ob:0",
+        "from_state": "OPEN",
+        "due_date": "2026-05-01",
+    }
+
+
+async def test_scanner_audit_is_idempotent_like_the_scan(deps):
+    # A daily cron over a stable corpus must not append a row every morning, or
+    # the trail becomes noise and the real transitions get lost in it.
+    await deps.obligations.upsert(obligation(due_date=date(2026, 5, 1)))
+    kwargs = {
+        "contracts_repo": FakeContracts(),
+        "audit": deps.audit,
+        "today": TODAY,
+        "due_soon_days": 30,
+    }
+
+    await scan(deps.obligations, **kwargs)
+    await scan(deps.obligations, **kwargs)
+
+    assert len(deps.audit.entries) == 1
+
+
+async def test_scanner_writes_no_audit_row_for_a_terminal_obligation(deps):
+    await deps.obligations.upsert(
+        obligation(due_date=date(2026, 1, 1), state=ObligationState.SATISFIED)
+    )
+
+    await scan(
+        deps.obligations,
+        contracts_repo=FakeContracts(),
+        audit=deps.audit,
+        today=TODAY,
+        due_soon_days=30,
+    )
+
+    assert deps.audit.entries == []
+
+
+async def test_scan_without_an_audit_log_still_transitions(deps):
+    # The state-machine tests pass no audit log, so this seam has to hold.
+    await deps.obligations.upsert(obligation(due_date=date(2026, 5, 1)))
+
+    result = await scan(
+        deps.obligations, contracts_repo=FakeContracts(), today=TODAY, due_soon_days=30
+    )
+
+    assert len(result.transitions) == 1
+    assert deps.audit.entries == []
+
+
 async def test_scanner_falls_back_to_ingest_time_when_no_effective_date(deps):
     # A guess about the parties' clock, but a bounded one — better than
     # refusing to schedule every recurring obligation on a contract whose

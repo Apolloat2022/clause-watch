@@ -11,11 +11,11 @@ The problem it exists to fix is not "nobody read the contract." It is that
 somebody read it once, eighteen months ago, and nothing has re-read it since.
 
 > **Status: built and tested, not yet deployed.** Phases 1–5 are complete —
-> ingest, extraction, retrieval and the monitoring scanner — under 152 tests
-> that run entirely offline. Phase 6 is partial: Entra ID bearer validation is
-> wired and tested, the rest is not. Nothing has been through a real
-> `azd provision`, so there is no live endpoint to point at.
-> See [Build phases](#build-phases).
+> ingest, extraction, retrieval and the monitoring scanner — under 156 tests
+> that run entirely offline. Phase 6 is nearly there: Entra ID bearer validation
+> and the audit trail are done; the load and cost check is not, because it needs
+> a deployment. Nothing has been through a real `azd provision`, so there is no
+> live endpoint to point at. See [Build phases](#build-phases).
 
 ---
 
@@ -211,11 +211,12 @@ outstanding:
 
 - **Entra ID auth — done.** Bearer validation in `app/auth.py`, 24 tests, most
   of them rejections. See [Auth setup](#auth-setup).
-- **Audit completeness — partial.** Every ingest stage writes an audit row, and
-  so does the obligation state change served by the API. The *scanner's* own
-  transitions do not, so a `DUE_SOON` or `OVERDUE` flag set by the nightly job
-  leaves no trail — which is a gap in exactly the workflow this system exists
-  for.
+- **Audit completeness — done for state changes.** Every ingest stage, the
+  obligation state change served by the API, and the scanner's own transitions
+  write an audit row carrying the previous state. Two things deliberately do
+  not: a recurring obligation whose next occurrence rolls forward without
+  changing state, and one whose rule is unschedulable. Both would append an
+  identical row every night and bury the transitions that matter.
 - **Load and cost check — not started.** It needs a real deployment, and there
   has not been one.
 

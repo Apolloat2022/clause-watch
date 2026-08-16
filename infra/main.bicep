@@ -67,6 +67,12 @@ param promptVersion string = 'v1'
 @secure()
 param notifyWebhookUrl string = ''
 
+@description('Entra ID tenant id for API bearer validation. LEAVING THIS EMPTY DEPLOYS AN UNAUTHENTICATED API: app/auth.py only installs the middleware when both this and entraAudience are set, and the ingress below is external. Optional solely so a first `azd up` works before an app registration exists.')
+param entraTenantId string = ''
+
+@description('Application ID URI of the app registration this API accepts tokens for, e.g. api://clausewatch. Must be set together with entraTenantId.')
+param entraAudience string = ''
+
 var tags = {
   'azd-env-name': environmentName
 }
@@ -92,6 +98,8 @@ module resources 'modules/resources.bicep' = {
     azureOpenAiEndpoint: azureOpenAiEndpoint
     promptVersion: promptVersion
     notifyWebhookUrl: notifyWebhookUrl
+    entraTenantId: entraTenantId
+    entraAudience: entraAudience
     principalId: principalId
     principalType: principalType
   }

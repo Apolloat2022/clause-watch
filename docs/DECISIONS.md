@@ -207,3 +207,48 @@ exercised before there is a UI to do it.
 subscription. At that point it becomes a group assignment rather than a
 per-principal one, and separating the read case from the write case starts to be
 worth the second set of roles.
+
+---
+
+## 010 — Bearer validation fails closed, and pins the algorithm
+
+**Date:** 2026-08-16 · **Status:** accepted
+
+Pure-ASGI rather than `BaseHTTPMiddleware`, so it sits in front of routing and
+covers every path — including ones no router claims — and never wraps a
+streaming response. Five choices inside it are worth stating, because each one
+looks like an over-complication until it doesn't:
+
+**RS256 is pinned, and the token header does not get a vote.** A token declaring
+`alg: HS256` would otherwise be verified with the RSA *public* key as an HMAC
+secret. That key is published at the JWKS endpoint, so forgery reduces to
+arithmetic. `tests/test_auth.py` builds that exact token by hand — PyJWT refuses
+to sign it, and an attacker has no reason to use PyJWT.
+
+**Both issuer forms are accepted.** A v2.0 token carries the
+`login.microsoftonline.com` issuer; a v1 token carries `sts.windows.net`. Which
+one arrives is decided by `accessTokenAcceptedVersion` in the app registration
+manifest — a different system entirely — so pinning one form produces an auth
+failure whose cause is invisible from here.
+
+**A JWKS outage is a 503, never a pass.** Failing open would mean an incident at
+the identity provider silently unauthenticates the API, which is the failure
+mode where nobody finds out.
+
+**An unrecognised `kid` can force one refetch, no more than once every five
+minutes.** Keys rotate, so refetching has to be possible. But an unrecognised
+`kid` is also precisely what a forged token looks like, and without the floor an
+unauthenticated caller can drive unbounded outbound requests — a
+denial-of-service against the login endpoint with this service as the amplifier.
+
+**The 401 body says nothing.** "Expired", "wrong audience" and "unknown key" all
+render identically. A specific error tells whoever is probing the surface exactly
+what to change next, which is a free oracle. The reason goes to the log.
+
+**Given up:** this is authentication, not authorization. Any valid token for this
+audience reaches every endpoint; there are no scope or role checks. There is
+also no revocation — a stolen token is good until `exp`.
+
+**Revisit when:** there is more than one class of caller. That is the point where
+scope claims start meaning something and the middleware needs a per-route
+policy rather than a single gate.

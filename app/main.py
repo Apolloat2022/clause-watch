@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from app.api.contracts import router as contracts_router
 from app.api.health import router as health_router
 from app.api.obligations import router as obligations_router
+from app.auth import EntraIdAuthMiddleware
 from app.config import settings
 from app.deps import Dependencies, build_dependencies
 from app.ingest.doc_intelligence import LayoutAnalyzer
@@ -58,7 +59,18 @@ def create_app(
     app.include_router(health_router)
     app.include_router(contracts_router)
     app.include_router(obligations_router)
-    # TODO(phase 6): app.add_middleware(EntraIdAuthMiddleware).
+
+    # Added only when configured, so an unset tenant leaves the app genuinely
+    # unwrapped rather than running a middleware that waves everything through —
+    # a permanently-disabled guard is the kind of thing that stays disabled by
+    # accident. The lifespan above warns loudly when this branch is skipped.
+    if settings.entra_tenant_id and settings.entra_audience:
+        app.add_middleware(
+            EntraIdAuthMiddleware,
+            tenant_id=settings.entra_tenant_id,
+            audience=settings.entra_audience,
+        )
+
     return app
 
 

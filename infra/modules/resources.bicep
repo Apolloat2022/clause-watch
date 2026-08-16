@@ -27,6 +27,9 @@ param promptVersion string
 @secure()
 param notifyWebhookUrl string
 
+param entraTenantId string
+param entraAudience string
+
 param principalId string
 
 @allowed(['User', 'ServicePrincipal'])
@@ -301,6 +304,18 @@ var webhookEnv = empty(notifyWebhookUrl) ? [] : [
 
 var containerEnvVars = concat(baseEnv, webhookEnv)
 
+// API only. The jobs serve no HTTP surface, so bearer validation is meaningless
+// to them — and shipping the tenant id somewhere it is never read just widens
+// what has to be kept in step. Both values or neither: app/auth.py installs the
+// middleware only when both are present, so a half-configured revision is an
+// unauthenticated one.
+var entraEnv = (empty(entraTenantId) || empty(entraAudience)) ? [] : [
+  { name: 'ENTRA_TENANT_ID', value: entraTenantId }
+  { name: 'ENTRA_AUDIENCE', value: entraAudience }
+]
+
+var apiEnvVars = concat(containerEnvVars, entraEnv)
+
 var registryConfig = [
   {
     server: containerRegistry.properties.loginServer
@@ -338,7 +353,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'api'
           image: apiImage
-          env: containerEnvVars
+          env: apiEnvVars
           resources: { cpu: json('0.5'), memory: '1Gi' }
           probes: [
             {

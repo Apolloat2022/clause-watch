@@ -31,6 +31,12 @@
     },
     "notifyWebhookUrl": {
       "value": "${NOTIFY_WEBHOOK_URL=}"
+    },
+    "entraTenantId": {
+      "value": "${ENTRA_TENANT_ID=}"
+    },
+    "entraAudience": {
+      "value": "${ENTRA_AUDIENCE=}"
     }
   }
 }

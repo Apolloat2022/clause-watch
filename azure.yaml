@@ -1,0 +1,27 @@
+# azd project definition. `azd up` provisions infra/ and deploys the services
+# below; `azd down` removes the whole resource group, which is the property
+# that matters on a personal Pay-As-You-Go subscription.
+name: clausewatch
+metadata:
+  template: clausewatch@0.1.0
+
+services:
+  api:
+    project: .
+    language: py
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      # Pinned rather than left to default. azd would otherwise push
+      # `clausewatch/api-<env>:azd-deploy-<unix time>`, a tag nothing else can
+      # predict — and the two jobs below need to name this image in Bicep
+      # before azd has ever built it. Pinning makes that reference exact.
+      image: clausewatch/api
+      tag: latest
+
+# The two Container Apps Jobs (ingest-worker, obligation-scanner) share the
+# api image and are declared in Bicep rather than here. azd can drive a job
+# tagged `azd-service-name`, but it builds one image per service, and three
+# services over one Dockerfile would be three pushes of identical bytes.
+# infra/ threads the built image into both jobs via the `containerImage`
+# parameter instead — see main.parameters.json.

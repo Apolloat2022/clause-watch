@@ -1,0 +1,51 @@
+# Two independent jobs, because they fail for unrelated reasons and there is no
+# point making an infrastructure syntax error look like a test failure.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: lint + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        # Every extra: the test suite exercises the Azure adapters and the
+        # local pypdf analyzer, both of which import at collection time.
+        run: pip install -e ".[api,azure,llm,local,dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        run: pytest -q
+
+  infra:
+    name: bicep build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Bicep
+        # The Azure CLI is preinstalled on GitHub-hosted runners and fetches the
+        # Bicep CLI itself on first use. This is a compile check only — it needs
+        # no credentials and touches no subscription, so it runs on forks too.
+        #
+        # Expect one BCP037 warning about `identity` on the KEDA scale rule:
+        # the property is real in the Microsoft.App REST API but missing from
+        # the generated Bicep type. Warnings do not fail the build.
+        run: az bicep build --file infra/main.bicep --stdout > /dev/null

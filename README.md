@@ -10,8 +10,12 @@ job tells you what is due, overdue, or about to auto-renew.
 The problem it exists to fix is not "nobody read the contract." It is that
 somebody read it once, eighteen months ago, and nothing has re-read it since.
 
-> **Status: scaffold.** Architecture and project structure are in place; the
-> pipeline is not implemented yet. See [Build phases](#build-phases).
+> **Status: built and tested, not yet deployed.** Phases 1–5 are complete —
+> ingest, extraction, retrieval and the monitoring scanner — under 152 tests
+> that run entirely offline. Phase 6 is partial: Entra ID bearer validation is
+> wired and tested, the rest is not. Nothing has been through a real
+> `azd provision`, so there is no live endpoint to point at.
+> See [Build phases](#build-phases).
 
 ---
 
@@ -96,9 +100,12 @@ azd auth login
 azd up
 ```
 
-> ⚠️ **The Bicep is unvalidated.** It was authored without access to the target
-> subscription. Run `az bicep build` and then `azd provision` before trusting
-> it; API versions drift and are the most likely thing to need bumping.
+> ⚠️ **Compiled on every push, never provisioned.** CI runs `az bicep build`, so
+> the template is syntactically valid and type-checks against current API
+> versions. It has not been through `azd provision` against a real subscription,
+> which is the stronger claim and not one this repo can make yet — quota,
+> regional availability and resource-level constraints only surface at deploy
+> time.
 
 ## Auth setup
 
@@ -190,16 +197,27 @@ rather than as unauthenticated.
 
 Each phase ends deployable.
 
-1. **Skeleton + IaC** — `azd up` provisions and deploys a hello-world API.
-2. **Ingest path** — upload → Blob → queue → job → Document Intelligence →
-   clauses in Cosmos. No LLM yet.
-3. **Extraction** — structured obligations via Claude, with citation validation
-   rejecting ungrounded output.
-4. **Retrieval** — embeddings, vector index, search and evidence endpoints.
-5. **Monitoring** — cron scanner, obligation state machine, notifications.
-6. **Hardening** — Entra ID auth, audit completeness, load and cost check.
+1. ✅ **Skeleton + IaC** — domain model, ports, config, Bicep.
+2. ✅ **Ingest path** — upload → Blob → queue → job → Document Intelligence →
+   clauses in Cosmos.
+3. ✅ **Extraction** — structured obligations via Claude, with citation
+   validation rejecting ungrounded output.
+4. ✅ **Retrieval** — embeddings, vector index, search and evidence endpoints.
+5. ✅ **Monitoring** — cron scanner, obligation state machine, notifications.
+6. ◐ **Hardening** — Entra ID auth, audit completeness, load and cost check.
 
-Currently at the start of phase 1.
+Phase 6 is the honest one to be specific about, since two of its three parts are
+outstanding:
+
+- **Entra ID auth — done.** Bearer validation in `app/auth.py`, 24 tests, most
+  of them rejections. See [Auth setup](#auth-setup).
+- **Audit completeness — partial.** Every ingest stage writes an audit row, and
+  so does the obligation state change served by the API. The *scanner's* own
+  transitions do not, so a `DUE_SOON` or `OVERDUE` flag set by the nightly job
+  leaves no trail — which is a gap in exactly the workflow this system exists
+  for.
+- **Load and cost check — not started.** It needs a real deployment, and there
+  has not been one.
 
 ## Known unknowns
 

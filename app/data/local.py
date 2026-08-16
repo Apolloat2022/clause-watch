@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from app.domain.models import Clause, Contract, Obligation
 
@@ -45,7 +47,15 @@ class LocalBlobStore:
         return path.as_uri()
 
     async def get(self, uri: str) -> bytes:
-        path = Path(uri.removeprefix("file:///")) if uri.startswith("file:") else Path(uri)
+        # Not a string strip: `file:///tmp/x` minus `file:///` is `tmp/x`, a
+        # *relative* path, so every read fails off a POSIX absolute path. It
+        # survives on Windows only because `file:///C:/x` happens to leave a
+        # usable `C:/x` behind. url2pathname round-trips as_uri() on both, and
+        # percent-decodes the names that as_uri() escaped.
+        if uri.startswith("file:"):
+            path = Path(url2pathname(urlparse(uri).path))
+        else:
+            path = Path(uri)
         return await asyncio.to_thread(path.read_bytes)
 
 
